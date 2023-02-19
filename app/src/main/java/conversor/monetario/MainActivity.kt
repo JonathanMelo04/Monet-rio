@@ -2,76 +2,84 @@ package conversor.monetario
 
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
-import android.view.View
-import android.widget.Button
-import android.widget.EditText
-import android.widget.RadioGroup
-import android.widget.TextView
-import org.json.JSONObject
-import java.net.URL
-import javax.net.ssl.HttpsURLConnection
+import android.widget.*
+import com.google.gson.JsonObject
+import conversor.monetario.api.Endpoint
+import conversor.monetario.util.NetworkUtils
+import retrofit2.Call
+import retrofit2.Callback
+import retrofit2.Response
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var  result: TextView
+    private lateinit var spFrom : Spinner
+    private lateinit var spTo : Spinner
+    private lateinit var btConvert : Button
+    private lateinit var tvResult : TextView
+    private lateinit var etValueFrom : EditText
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        result = findViewById<TextView>(R.id.txt_result)
+        spFrom = findViewById(R.id.spFrom)
+        spTo = findViewById(R.id.spTo)
+        btConvert = findViewById(R.id.btConvert)
+        tvResult = findViewById(R.id.tvResult)
+        etValueFrom = findViewById(R.id.etValueFrom)
 
-        val buttonConverter = findViewById<Button>(R.id.btn_converter)
+        getCurrencies()
 
-        buttonConverter.setOnClickListener {
-           converter()
+        btConvert.setOnClickListener {
+            convertMoney()
         }
     }
+    fun convertMoney() {
+        val retrofitClient = NetworkUtils.getRetrofitInstance("https://cdn.jsdelivr.net/")
+        val endpoint = retrofitClient.create(Endpoint::class.java)
 
-    private fun converter (){
-       val selectedCurrency = findViewById<RadioGroup>(R.id.radio_group)
+        endpoint.getCurrencyRate(spFrom.selectedItem.toString(), spTo.selectedItem.toString()).enqueue(object: Callback<JsonObject>{
+            override fun onResponse(call: Call<JsonObject>, response: Response<JsonObject>) {
+                var data = response.body()?.entrySet()?.find { it.key == spTo.selectedItem.toString() }
+                val rate : Double = data?.value.toString().toDouble()
+                val conversion = etValueFrom.text.toString().toDouble() * rate
 
-       val checked = selectedCurrency.checkedRadioButtonId
-
-       val currency = when(checked){
-           R.id.radio_usd -> "USD"
-           R.id.radio_eur -> "EUR"
-           else           -> "GBP"
-       }
-
-        val editField = findViewById<EditText>(R.id.edit_field)
-
-        val value = editField.text.toString()
-
-        if (value.isEmpty())
-            return
-
-        result.text = value
-        result.visibility = View.VISIBLE
-
-        Thread {
-            //aqui acontece em paralelo
-
-            var url = URL("https://free.currconv.com/api/v7/convert?q=${currency}_BRL&compact=ultra&apiKey=0b30a4fe604270d5274c")
-
-            val conn = url.openConnection() as HttpsURLConnection
-
-            try {
-
-                val data = conn.inputStream.bufferedReader().readText()
-
-                val obj = JSONObject(data)
-
-                runOnUiThread {
-                    val res = obj.getDouble("${currency}_BRL")
-
-                    result.text = "R$${"%.4f".format(value.toDouble() * res)}" // ${value.toDouble() * res}"
-                    result.visibility = View.VISIBLE
-                }
-            }finally {
-                conn.disconnect()
+                tvResult.setText(conversion.toString())
             }
-        }.start()
+
+            override fun onFailure(call: Call<JsonObject>, t: Throwable) {
+                println("Não foi")
+            }
+        })
     }
 
+    fun getCurrencies(){
+        val retrofitClient = NetworkUtils.getRetrofitInstance("https://cdn.jsdelivr.net/")
+        val endpoint = retrofitClient.create(Endpoint::class.java)
+
+        endpoint.getCurrencies().enqueue(object : retrofit2.Callback<JsonObject>{
+
+            override fun onResponse(call: Call<JsonObject>, response: Response<JsonObject>) {
+                var data = mutableListOf<String>()
+
+                response.body()?.keySet()?.iterator()?.forEach {
+                    data.add(it)
+                }
+
+                val posUSD = data.indexOf("usd")
+                val posBRL = data.indexOf("brl")
+
+                val adapter = ArrayAdapter(baseContext, android.R.layout.simple_spinner_dropdown_item, data)
+                spFrom.adapter = adapter
+                spTo.adapter = adapter
+
+                spFrom.setSelection(posUSD)
+                spTo.setSelection(posBRL)
+            }
+
+            override fun onFailure(call: Call<JsonObject>, t: Throwable) {
+                println("Não foi")
+            }
+        })
+    }
 }
